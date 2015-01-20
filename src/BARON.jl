@@ -136,37 +136,42 @@ function print_var_definitions(m, fp, header, condition)
     end
 end
 
-to_str(x::Int) = string(x)
-to_str(x) = string(float(x))
+to_str(x::Int) = "", 0.0
+to_str(x) = "", float(x)
 
-function to_str(c::Expr)
+function to_str(c::Expr) # --> (String,Float64)
     if c.head == :comparison
         if length(c.args) == 3
-            return join([to_str(c.args[1]), c.args[2], c.args[3]], " ")
+            lhs_str, lhs_val = to_str(c.args[1])
+            return join([lhs_str, c.args[2], c.args[3]]-lhs_val, " "), 0.0
         elseif length(c.args) == 5
-            return join([c.args[1], c.args[2], to_str(c.args[3]),
-                         c.args[4], c.args[5]], " ")
+            lhs_str, lhs_val = to_str(c.args[3])
+            return join([c.args[1]-lhs_val, c.args[2], lhs_str,
+                         c.args[4], c.args[5]-lhs_val], " "), 0.0
         end
     elseif c.head == :call
         if c.args[1] in [:+,:-,:*,:/,:^]
             if all(d->isa(d, Real), c.args[2:end]) # handle unary case
-                return string(eval(c))
+                return "", eval(c)
             elseif c.args[1] == :- && length(c.args) == 2
-		return string("(-$(to_str(c.args[2])))")
-	    else
-		return string("(", join([to_str(d) for d in c.args[2:end]], string(c.args[1])), ")")
+		        return string("(-$(to_str(c.args[2])))"), 0.0
+	        else
+                elems = [to_str(d)[1] for d in c.args[2:end]]
+                vals  = [to_str(d)[2] for d in c.args[2:end]]
+		        return string("(", join(elems, string(c.args[1])), ")"), sum(vals)
             end
         elseif c.args[1] in [:exp,:log]
             if isa(c.args[2], Real)
-                return string(eval(c))
+                return "", eval(c)
             else
-                return string(c.args[1], "( ", to_str(c.args[2]), " )")
+                elem, val = to_str(c.args[2])
+                return string(c.args[1], "( ", elem, " )"), val
             end
         end
     elseif c.head == :ref
         if c.args[1] == :x
             @assert isa(c.args[2], Int)
-            return "x$(c.args[2])"
+            return "x$(c.args[2])", 0.0
         else
             error("Unrecognized reference expression $c")
         end
@@ -221,7 +226,7 @@ function write_bar_file(m::BaronMathProgModel)
     if !isempty(m.constrs)
         println(fp, "EQUATIONS ", join(m.c_names, ", "), ";")
         for (i,c) in enumerate(m.constrs)
-            str = to_str(c)
+            str,_ = to_str(c)
             println(fp, "$(m.c_names[i]): $str;")
         end
         println(fp)
@@ -230,7 +235,7 @@ function write_bar_file(m::BaronMathProgModel)
     # Now let's do the objective
     print(fp, "OBJ: ")
     print(fp, m.sense == :Min ? "minimize " : "maximize ")
-    print(fp, to_str(m.obj))
+    print(fp, to_str(m.obj)[1])
     println(fp, ";")
     println(fp)
 
